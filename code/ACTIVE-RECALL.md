@@ -352,6 +352,151 @@ Core logic (FastAPI backend, Gemini integration) மாறாது — frontend
 
 ---
 
-*Total: 18 questions — Basic (4) + Architecture (4) + Security (3) + Deep Technical (4) + Concepts (3)*
+---
+
+## SECTION 6 — Technology Choices (Why this tool, not that tool?)
+
+---
+
+**Q19. ஏன் FastAPI? Flask அல்லது Django use பண்ணக்கூடாதா?**
+
+<details>
+<summary>Answer</summary>
+
+**Flask:** Minimal framework — good, ஆனால் async support இல்லை by default. நாம் Gemini API call பண்றோம் — I/O-bound operation. Async இல்லாம்னா ஒரு request Gemini-ஐ wait பண்றப்போ next request block ஆகும்.
+
+**Django:** Full-stack framework — ORM, admin panel, templating எல்லாம் இருக்கு. நமக்கு ஒரு simple API மட்டும் தேவை. Django overkill — unnecessary complexity.
+
+**FastAPI:**
+- `async/await` native support — Gemini call wait பண்றப்போ மற்ற requests handle ஆகும்
+- Pydantic models — request body automatically validate ஆகும் (type errors early catch)
+- Auto-generated `/docs` (Swagger UI) — API test பண்ண browser போதும்
+- Modern Python — type hints first-class citizen
+
+**What if we had used Flask:** Single user POC-ல் difference தெரியாது. Multiple users simultaneously use பண்ணும்போது Flask block ஆகும், FastAPI handle பண்ணும்.
+
+</details>
+
+---
+
+**Q20. இந்த POC-ல் nginx இல்லை — production-ல் nginx ஏன் தேவை? அது என்ன பண்றது?**
+
+<details>
+<summary>Answer</summary>
+
+nginx = **reverse proxy** (முன்னால் நிக்கற gate-keeper). Production-ல் directly FastAPI-ஐ internet-க்கு expose பண்றதில்லை. nginx-ஐ முன்னால் வைப்போம்.
+
+**nginx என்ன பண்றது:**
+
+1. **SSL Termination** — HTTPS connection nginx-ல் end ஆகுது. FastAPI-க்கு plain HTTP போகுது. FastAPI SSL பத்தி கவலைப்பட வேண்டாம்.
+
+2. **Load Balancing** — Multiple FastAPI instances run பண்ணினா nginx traffic distribute பண்றது.
+
+3. **Static File Serving** — HTML, CSS, JS files-ஐ nginx directly serve பண்றது — FastAPI-ஐ reach பண்றதே இல்லை. Fast.
+
+4. **Rate Limiting** — ஒரே IP-இருந்து too many requests வந்தா block பண்றது.
+
+5. **Request Buffering** — Slow client connection-ல் nginx buffer பண்றது, FastAPI-ஐ free-ஆ வைக்கிறது.
+
+**Our POC vs Production:**
+```
+POC:        Word → FastAPI (8000, HTTPS directly)
+Production: Word → nginx (443, HTTPS) → FastAPI (8000, HTTP, localhost only)
+```
+
+nginx இல்லாம production போனா FastAPI directly exposed — security risk, performance bottleneck.
+
+</details>
+
+---
+
+**Q21. ஏன் `google-genai` package? `google-generativeai` package-உம் இருக்கே — வித்தியாசம் என்ன?**
+
+<details>
+<summary>Answer</summary>
+
+`google-generativeai` = older package (v1 SDK). `google-genai` = new unified SDK (v2).
+
+**Differences:**
+- `google-genai` — Gemini + Imagen + future models எல்லாத்தையும் ஒரே SDK-ல் handle பண்றது
+- Cleaner API: `client.models.generate_content()` vs older `genai.GenerativeModel().generate_content()`
+- Better async support
+- Google officially `google-genai`-க்கு migrate பண்ணச் சொல்றாங்க
+
+நாம் `google-genai` use பண்ணோம் — future-proof, Google-recommended.
+
+</details>
+
+---
+
+**Q22. ஏன் `uvicorn`? Gunicorn use பண்ணக்கூடாதா?**
+
+<details>
+<summary>Answer</summary>
+
+**Gunicorn** = traditional WSGI (synchronous) server. FastAPI async (ASGI) framework. Gunicorn நேரடியா FastAPI run பண்ண முடியாது — ASGI adapter தேவை.
+
+**uvicorn** = ASGI server — async Python apps-க்கு specifically designed. FastAPI + uvicorn = perfect match.
+
+**Production pattern:** `gunicorn -k uvicorn.workers.UvicornWorker` — Gunicorn process management + uvicorn async handling. Multiple worker processes-க்கு இந்த combo use பண்றாங்க.
+
+**Our POC:** Single uvicorn process போதும். Production-ல் `gunicorn + uvicorn workers` combo better.
+
+</details>
+
+---
+
+**Q23. `python-dotenv` ஏன் தேவை? `os.environ` directly use பண்ணக்கூடாதா?**
+
+<details>
+<summary>Answer</summary>
+
+`os.environ["GEMINI_API_KEY"]` — environment variable system-level-ல் set ஆச்சிருந்தா மட்டும் work பண்றது. `export GEMINI_API_KEY=xxx` terminal-ல் run பண்ணணும் — deploy பண்ணும்போது forget ஆகும், CI/CD-ல் extra steps தேவை.
+
+`python-dotenv` — `.env` file-ஐ automatically read பண்ணி `os.environ`-ல் load பண்றது. Code-ல் ஒரே line: `load_dotenv()`. `.env` file project folder-ல் இருந்தா automatically pick up ஆகும்.
+
+**Benefit:** Developer எந்த extra terminal setup-உம் இல்லாம project clone பண்ணி `.env` create பண்ணி run பண்ணலாம். Team-friendly, portable.
+
+</details>
+
+---
+
+**Q24. WebView2 என்றால் என்ன? Word-ல் எப்படி use ஆகுது?**
+
+<details>
+<summary>Answer</summary>
+
+WebView2 = Microsoft-ஓட embedded browser component — Edge (Chromium)-ஐ அடிப்படையாக வச்சது. Windows applications-ல் web content render பண்ண use பண்றாங்க.
+
+Word-ல்: Task Pane-ல் தெரியற எல்லாமே WebView2-ல் render ஆகுது. அதாவது Word-ஓட task pane = Edge browser window, Word application-க்கு inside embed பண்ணது.
+
+**Why it matters for us:**
+- Modern CSS/JS features support ஆகும் (flex, async/await, fetch)
+- HTTPS-only policy enforce ஆகும் (mixed content blocked)
+- `Office.js` bridge இந்த WebView2 + Word native code-க்கு நடுவில் இயங்குது
+- F12 DevTools directly work பண்றதில்லை (special flags தேவை)
+
+</details>
+
+---
+
+**Q25. இந்த POC-ல் நாம் use பண்ண `Office.js insertTable()` alternative என்ன? ஏன் அதை choose பண்ணோம்?**
+
+<details>
+<summary>Answer</summary>
+
+**Alternative 1 — insertText() with markdown:** `| col | col |` text insert பண்றது. Word real table-ஆ render பண்றதில்லை — plain text மட்டுமே.
+
+**Alternative 2 — Open XML manipulation:** Word document XML directly edit பண்றது. Powerful ஆனால் extremely complex — table XML structure manually எழுதணும்.
+
+**Alternative 3 — insertTable() (what we chose):** Office.js high-level API. Values array pass பண்ணினா Office automatically real table create பண்றது. Style (`gridTable4Accent1`) ஒரே line-ல் apply ஆகுது.
+
+**Why insertTable():** Simplest, most reliable, Office-native. LLM JSON output-ஐ directly values array-ஆ use பண்ணலாம். No XML knowledge தேவை.
+
+</details>
+
+---
+
+*Total: 25 questions — Basic (4) + Architecture (4) + Security (3) + Deep Technical (5) + Technology Choices (7) + Concepts (2)*
 
 *Next step: இதை PDF-ஆ convert பண்ண script எழுதலாம் — `markdown → PDF` via `weasyprint` or `pandoc`.*
