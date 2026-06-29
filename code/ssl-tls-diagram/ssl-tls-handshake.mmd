@@ -1,0 +1,37 @@
+sequenceDiagram
+    participant B as 🌐 Browser (Client)
+    participant TS as 🔐 Trust Store<br/>(OS/Browser-இல் built-in CA list)
+    participant S as 🖥️ Server
+
+    Note over B,S: ── Phase 1: Handshake (யார் நீங்க? நம்பலாமா?) ──
+
+    B->>S: ClientHello<br/>(supported TLS versions, cipher suites, random number)
+    S-->>B: ServerHello<br/>(chosen cipher suite, random number)
+    S-->>B: Certificate<br/>(Server-ஓட Public Key + CA Signature)
+
+    Note over B: Certificate verify பண்றது (locally):<br/>1. யார் இந்த cert-ஐ sign பண்ணாங்க? (CA name படிக்குது)<br/>2. அந்த CA என் Trust Store-ல இருக்கா?<br/>3. Cert expire ஆச்சா? Domain match ஆகுதா?
+
+    B->>TS: "இந்த CA trusted-ஆ?"
+    TS-->>B: ✅ Trusted — CA என்கிட்ட இருக்கு
+
+    Note over B: CA trusted → Certificate valid<br/>Server-ஓட Public Key இப்போ நம்பகமானது
+
+    Note over B,S: ── Phase 2: Key Exchange (Secret எப்படி share பண்றது?) ──
+
+    B->>B: Pre-Master Secret generate பண்றது (random bytes)
+    B->>B: Pre-Master Secret-ஐ Server Public Key-ல் Encrypt பண்றது
+    B->>S: Encrypted Pre-Master Secret அனுப்புது
+
+    S->>S: 🔓 Private Key-ல் Decrypt → Pre-Master Secret கிடைக்குது
+
+    Note over B,S: இருவரும் independently:<br/>Pre-Master Secret + இரண்டு Random Numbers<br/>→ ஒரே Session Key derive பண்றாங்க<br/>(Network-ல் Session Key போகவே இல்லை!)
+
+    Note over B,S: ── Phase 3: Handshake Complete ──
+
+    B->>S: Finished (handshake messages-ஓட hash, Session Key-ல encrypt)
+    S-->>B: Finished (server-side confirmation, Session Key-ல encrypt)
+
+    Note over B,S: ── Phase 4: Encrypted Communication ──
+
+    B->>S: 🔒 HTTP Request (Session Key-ல Symmetric Encrypt)
+    S-->>B: 🔒 HTTP Response (Session Key-ல Symmetric Encrypt)
