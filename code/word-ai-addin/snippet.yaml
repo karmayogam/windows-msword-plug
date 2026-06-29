@@ -1,0 +1,249 @@
+name: Word AI Assistant (Multi-Page)
+description: Multi-page Word Add-in with agent instructions, AI Rewrite and Table generation
+host: WORD
+api_set: {}
+script:
+  language: javascript
+  content: |
+    const BACKEND = "https://192.168.16.62:8000";
+    let savedText = "";
+    let agentContext = { instructions: "" };
+
+    // ── Navigation ───────────────────────────────────────────
+    function showPage(pageId) {
+      ["page-home", "page-form", "page-rewrite", "page-table"].forEach(id => {
+        document.getElementById(id).style.display = "none";
+      });
+      document.getElementById(pageId).style.display = "block";
+      clearStatus();
+    }
+
+    function clearStatus() {
+      document.getElementById("status").innerText = "";
+      document.getElementById("error").innerText = "";
+    }
+
+    // ── Agent Instructions Form ──────────────────────────────
+    function saveForm() {
+      const instructions = document.getElementById("f-instructions").value.trim();
+      const err          = document.getElementById("f-error");
+
+      if (!instructions) { err.innerText = "Please enter instructions for the agent."; return; }
+
+      agentContext = { instructions };
+      err.innerText = "";
+
+      document.getElementById("home-badge").innerText = "Agent instructions saved.";
+      document.getElementById("home-badge").style.display = "block";
+
+      showPage("page-home");
+    }
+
+    // ── AI Rewrite flow ──────────────────────────────────────
+    async function startRewrite() {
+      const status = document.getElementById("status");
+      const error  = document.getElementById("error");
+      error.innerText = "";
+
+      await Word.run(async (context) => {
+        const selection = context.document.getSelection();
+        selection.load("text");
+        await context.sync();
+
+        savedText = selection.text.trim();
+        if (!savedText) { status.innerText = "Please select some text."; return; }
+
+        status.innerText = "Asking backend...";
+
+        const res = await fetch(`${BACKEND}/rewrite`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: savedText,
+            instructions: agentContext.instructions
+          })
+        });
+        const data = await res.json();
+
+        if (data.type === "question") {
+          document.getElementById("rw-question").innerText = data.question;
+          document.getElementById("rw-step1").style.display = "none";
+          document.getElementById("rw-step2").style.display = "block";
+          status.innerText = "Waiting for your choice...";
+        }
+      });
+    }
+
+    async function choose(answer) {
+      const status = document.getElementById("status");
+      status.innerText = `Sending "${answer}" to LLM...`;
+
+      const res = await fetch(`${BACKEND}/rewrite/finalize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: savedText,
+          answer: answer,
+          instructions: agentContext.instructions
+        })
+      });
+      const data = await res.json();
+
+      await Word.run(async (context) => {
+        const selection = context.document.getSelection();
+        selection.insertText(data.rewrittenText, "Replace");
+        await context.sync();
+      });
+
+      document.getElementById("rw-step1").style.display = "block";
+      document.getElementById("rw-step2").style.display = "none";
+      status.innerText = "Done! Text replaced.";
+    }
+
+    // ── Make Table flow ──────────────────────────────────────
+    async function makeTable() {
+      const status = document.getElementById("status");
+      const error  = document.getElementById("error");
+      error.innerText = "";
+
+      await Word.run(async (context) => {
+        const selection = context.document.getSelection();
+        selection.load("text");
+        await context.sync();
+
+        savedText = selection.text.trim();
+        if (!savedText) { status.innerText = "Please select some text first."; return; }
+
+        status.innerText = "Asking Gemini to build table...";
+
+        const res = await fetch(`${BACKEND}/make-table`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: savedText,
+            instructions: agentContext.instructions
+          })
+        });
+
+        if (!res.ok) { error.innerText = "Backend error: " + res.status; return; }
+
+        const data = await res.json();
+
+        if (data.type === "table") {
+          const values   = [data.headers, ...data.rows];
+          const rowCount = values.length;
+          const colCount = data.headers.length;
+
+          const sel = context.document.getSelection();
+          sel.insertText("", "Replace");
+          await context.sync();
+
+          const range = context.document.getSelection();
+          const table = range.insertTable(rowCount, colCount, "Before", values);
+          table.styleBuiltIn = Word.BuiltInStyleName.gridTable4Accent1;
+          await context.sync();
+
+          status.innerText = `Table inserted! (${rowCount - 1} rows x ${colCount} cols)`;
+        }
+      });
+    }
+
+template:
+  language: html
+  content: |
+    <!-- ── Page 1: Home ── -->
+    <div id="page-home">
+      <h3 style="color:#0078d4; margin-bottom:4px;">Word AI Assistant</h3>
+      <div id="home-badge" style="display:none; font-size:11px; color:#107c10;
+           margin-bottom:12px; padding:4px 8px; background:#e6f4e6; border-radius:3px;"></div>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
+        <button onclick="showPage('page-form')" style="background:#8764b8;">⚙️ Agent Instructions</button>
+        <button onclick="showPage('page-rewrite')">✏️ AI Rewrite</button>
+        <button onclick="showPage('page-table')" style="background:#107c10;">📊 Make Table</button>
+      </div>
+    </div>
+
+    <!-- ── Page 2: Agent Instructions Form ── -->
+    <div id="page-form" style="display:none;">
+      <div style="margin-bottom:12px;">
+        <button onclick="showPage('page-home')"
+          style="background:#605e5c; padding:4px 10px; font-size:11px;">Back</button>
+      </div>
+      <h3 style="color:#8764b8; margin:0 0 16px 0;">Agent Instructions</h3>
+
+      <div style="margin-bottom:8px;">
+        <div style="font-size:12px; font-weight:600; margin-bottom:6px; color:#323130;">Instructions to Agent</div>
+        <textarea id="f-instructions" rows="10"
+          style="display:block; width:100%; padding:8px; font-size:13px; border:1px solid #8764b8; border-radius:2px; box-sizing:border-box; font-family:Segoe UI,sans-serif; resize:vertical;"
+          placeholder="e.g. You are a professional proposal writer. Always use formal engineering tone. Focus on technical accuracy and clarity."></textarea>
+      </div>
+
+      <div id="f-error" style="font-size:12px; color:red; margin-bottom:8px;"></div>
+      <button onclick="saveForm()" style="background:#8764b8; width:100%; padding:10px; font-size:13px;">
+        Save and Back
+      </button>
+    </div>
+
+    <!-- ── Page 3: AI Rewrite ── -->
+    <div id="page-rewrite" style="display:none;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+        <button onclick="showPage('page-home')"
+          style="background:#605e5c; padding:4px 10px; font-size:11px;">← Back</button>
+        <h3 style="color:#0078d4; margin:0;">AI Rewrite</h3>
+      </div>
+      <p style="font-size:12px; color:#555;">Select a paragraph in Word, then click Start.</p>
+      <div id="rw-step1">
+        <button onclick="startRewrite()">▶ Start Rewrite</button>
+      </div>
+      <div id="rw-step2" style="display:none;">
+        <p id="rw-question" style="font-weight:bold; font-size:13px;"></p>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button onclick="choose('Formal')">Formal</button>
+          <button onclick="choose('Casual')">Casual</button>
+          <button onclick="choose('Concise')">Concise</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Page 4: Make Table ── -->
+    <div id="page-table" style="display:none;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+        <button onclick="showPage('page-home')"
+          style="background:#605e5c; padding:4px 10px; font-size:11px;">← Back</button>
+        <h3 style="color:#107c10; margin:0;">Make Table</h3>
+      </div>
+      <p style="font-size:12px; color:#555;">Select text in Word, then click Generate.</p>
+      <button onclick="makeTable()" style="background:#107c10;">📊 Generate Table</button>
+    </div>
+
+    <!-- ── Shared status bar ── -->
+    <div id="status" style="margin-top:16px; font-size:12px; color:#333;"></div>
+    <div id="error"  style="margin-top:6px;  font-size:12px; color:red;"></div>
+style:
+  language: css
+  content: |
+    body { font-family: 'Segoe UI', sans-serif; padding: 12px; }
+    button {
+      padding: 8px 16px;
+      background: #0078d4;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      border-radius: 2px;
+    }
+    button:hover { opacity: 0.85; }
+    .lbl { font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px; }
+    .inp {
+      width: 100%;
+      padding: 6px 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    .inp:focus { outline: 2px solid #0078d4; border-color: transparent; }
+libraries: |
+  https://appsforoffice.microsoft.com/lib/1/hosted/office.js
+  @types/office-js

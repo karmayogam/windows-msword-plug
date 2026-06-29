@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# SSL certs
+*.pem
+*.key
+*.crt
+
+# Python virtual environment
+code/word-ai-backend/word-ai-backend/
+
+# Node
+code/word-ai-addin/node_modules/
+code/word-ai-addin/package-lock.json

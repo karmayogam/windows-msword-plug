@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Word AI Rewriter</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 16px; }
+    button { padding: 10px 20px; background: #0078d4; color: white; border: none; cursor: pointer; width: 100%; font-size: 14px; }
+    button:disabled { background: #aaa; }
+    #status { margin-top: 12px; font-size: 13px; color: #333; }
+    #error  { margin-top: 8px;  font-size: 13px; color: red; }
+  </style>
+</head>
+<body>
+  <h3>AI Rewriter</h3>
+  <button id="btn" onclick="rewriteSelection()">Rewrite Selected Text</button>
+  <div id="status"></div>
+  <div id="error"></div>
+
+  <script>
+    const BACKEND = "http://192.168.16.62:8000";
+
+    Office.onReady(function () {
+      document.getElementById("btn").disabled = false;
+    });
+
+    async function rewriteSelection() {
+      const btn    = document.getElementById("btn");
+      const status = document.getElementById("status");
+      const error  = document.getElementById("error");
+
+      error.innerText  = "";
+      status.innerText = "Reading selection...";
+      btn.disabled = true;
+
+      try {
+        await Word.run(async (context) => {
+          const selection = context.document.getSelection();
+          selection.load("text");
+          await context.sync();
+
+          const selectedText = selection.text.trim();
+          if (!selectedText) {
+            status.innerText = "Please select some text first.";
+            btn.disabled = false;
+            return;
+          }
+
+          status.innerText = "Sending to backend...";
+
+          const response = await fetch(`${BACKEND}/rewrite`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: selectedText })
+          });
+
+          const data = await response.json();
+
+          status.innerText = "Replacing text in Word...";
+          selection.insertText(data.rewrittenText, "Replace");
+          await context.sync();
+
+          status.innerText = "Done!";
+          btn.disabled = false;
+        });
+      } catch (err) {
+        error.innerText = "Error: " + err.message;
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
